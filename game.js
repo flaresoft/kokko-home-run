@@ -28,6 +28,7 @@
       loadImage("assets/kokko-run-2.png"),
     ],
     yellowCat: loadImage("assets/cat-yellow.png"),
+    yellowCatHappy: loadImage("assets/cat-yellow-happy.png"),
     blackCat: loadImage("assets/cat-black.png"),
   };
 
@@ -243,6 +244,9 @@
     for (const obstacle of state.obstacles) {
       obstacle.depth += dt * obstacle.speed;
       obstacle.wobble += dt;
+      if (obstacle.hit) {
+        obstacle.hitAge += dt;
+      }
       if (!obstacle.hit && obstacle.depth >= 0.83 && obstacle.depth <= 1.08 && obstacle.lane === state.targetLane) {
         const clear = obstacle.type === "puddle" ? state.jumpT > 0.16 : state.jumpT > 0.47;
         if (!clear) {
@@ -297,24 +301,27 @@
       depth: -0.04,
       speed: random(0.42, 0.5) + state.speed / 950,
       hit: false,
+      hitAge: 0,
       wobble: random(0, 10),
     });
   }
 
   function seedShowcaseObstacles() {
+    const yellowHit = params.has("hitshowcase");
     state.obstacles = [
-      { type: "yellowCat", lane: -1, depth: 0.45, speed: 0.46, hit: false, wobble: 0 },
-      { type: "puddle", lane: 0, depth: 0.64, speed: 0.44, hit: false, wobble: 2 },
-      { type: "blackCat", lane: 1, depth: 0.78, speed: 0.43, hit: false, wobble: 4 },
+      { type: "yellowCat", lane: -1, depth: yellowHit ? 0.88 : 0.45, speed: 0.46, hit: yellowHit, hitAge: 0, wobble: 0 },
+      { type: "puddle", lane: 0, depth: 0.64, speed: 0.44, hit: false, hitAge: 0, wobble: 2 },
+      { type: "blackCat", lane: 1, depth: 0.78, speed: 0.43, hit: false, hitAge: 0, wobble: 4 },
     ];
   }
 
   function hitObstacle(obstacle) {
     obstacle.hit = true;
+    obstacle.hitAge = 0;
     state.shake = obstacle.type === "puddle" ? 5 : 8;
     state.speed = Math.max(150, state.speed - (obstacle.type === "puddle" ? 36 : 48));
     state.distance = Math.max(0, state.distance - (obstacle.type === "puddle" ? 10 : 18));
-    state.message = obstacle.type === "puddle" ? "첨벙!" : "길막!";
+    state.message = obstacle.type === "puddle" ? "첨벙!" : obstacle.type === "yellowCat" ? "좋아!" : "길막!";
     state.messageTimer = 0.7;
     makeDust(playerScreenX(), playerBaseY - 20, obstacle.type === "puddle" ? 15 : 10);
   }
@@ -471,17 +478,18 @@
   function drawCat(obstacle) {
     const p = perspectivePoint(obstacle.lane, obstacle.depth);
     const scale = scaleForDepth(obstacle.depth);
-    const image = obstacle.type === "yellowCat" ? images.yellowCat : images.blackCat;
-    const baseW = obstacle.type === "yellowCat" ? 78 : 84;
-    const baseH = obstacle.type === "yellowCat" ? 104 : 118;
+    const happyYellow = obstacle.type === "yellowCat" && obstacle.hit;
+    const image = happyYellow ? images.yellowCatHappy : obstacle.type === "yellowCat" ? images.yellowCat : images.blackCat;
+    const baseW = happyYellow ? 132 : obstacle.type === "yellowCat" ? 78 : 84;
+    const baseH = happyYellow ? 80 : obstacle.type === "yellowCat" ? 104 : 118;
     const w = baseW * scale;
     const h = baseH * scale;
-    const bob = Math.sin(obstacle.wobble * 5) * 3 * scale;
+    const bob = Math.sin(obstacle.wobble * 5) * (happyYellow ? 1.5 : 3) * scale;
 
     ctx.save();
-    ctx.globalAlpha = obstacle.hit ? 0.5 : 1;
+    ctx.globalAlpha = obstacle.hit && !happyYellow ? 0.5 : 1;
     ctx.translate(p.x, p.y + bob);
-    ctx.rotate(Math.sin(obstacle.wobble * 2.2) * 0.03);
+    ctx.rotate(happyYellow ? Math.sin(obstacle.wobble * 5.5) * 0.035 : Math.sin(obstacle.wobble * 2.2) * 0.03);
     if (image.complete && image.naturalWidth) {
       ctx.drawImage(image, -w / 2, -h, w, h);
     } else {
