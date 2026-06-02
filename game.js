@@ -321,7 +321,7 @@
     state.shake = obstacle.type === "puddle" ? 5 : 8;
     state.speed = Math.max(150, state.speed - (obstacle.type === "puddle" ? 36 : 48));
     state.distance = Math.max(0, state.distance - (obstacle.type === "puddle" ? 10 : 18));
-    state.message = obstacle.type === "puddle" ? "첨벙!" : obstacle.type === "yellowCat" ? "좋아!" : "길막!";
+    state.message = obstacle.type === "puddle" ? "첨벙!" : "길막!";
     state.messageTimer = 0.7;
     makeDust(playerScreenX(), playerBaseY - 20, obstacle.type === "puddle" ? 15 : 10);
   }
