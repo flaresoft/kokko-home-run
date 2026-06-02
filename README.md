@@ -2,6 +2,12 @@
 
 `index.html`을 브라우저로 열면 바로 실행되는 정적 HTML 게임입니다.
 
+배포 URL: https://flaresoft.github.io/kokko-home-run/
+
+QR 코드:
+
+![꼬꼬의 귀가길 QR](kokko-home-run-qr.png)
+
 - 목표: 제한 시간 안에 꼬꼬가 집까지 돌아가기
 - 점수: 제한 시간 안에 이동한 거리, 브라우저에 최고 기록 저장
 - 조작: `A`/`←`, `D`/`→`로 좌우 이동, `Space`/`↑`/`W`로 점프, 화면 터치 버튼
