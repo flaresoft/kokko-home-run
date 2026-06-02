@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>꼬꼬의 귀가길</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="game-shell">
+      <section class="topbar" aria-label="게임 정보">
+        <div class="brand">
+          <strong>꼬꼬의 귀가길</strong>
+          <span>푸른 초원</span>
+        </div>
+        <div class="stats">
+          <span><b id="distanceText">0m</b> 이동</span>
+          <span><b id="timeText">45.0</b> 초</span>
+          <span><b id="bestText">0m</b> 최고</span>
+        </div>
+      </section>
+
+      <section class="stage-wrap">
+        <canvas id="game" width="960" height="540" aria-label="꼬꼬가 초원을 달려 집으로 돌아가는 게임"></canvas>
+        <div id="overlay" class="overlay">
+          <div class="result-panel">
+            <p id="resultKicker">READY</p>
+            <h1 id="resultTitle">꼬꼬 집으로!</h1>
+        <p id="resultMeta">좌우 이동과 점프로 집까지 도착하기</p>
+            <button id="startButton" type="button">시작</button>
+          </div>
+        </div>
+      </section>
+
+      <nav class="control-pad" aria-label="게임 조작">
+        <button id="leftButton" class="control-button" type="button" aria-label="왼쪽">‹</button>
+        <button id="jumpButton" class="control-button jump-button" type="button" aria-label="점프">↑</button>
+        <button id="rightButton" class="control-button" type="button" aria-label="오른쪽">›</button>
+      </nav>
+    </main>
+
+    <script src="game.js"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+# Keep generated source/chroma-key files local.
+assets/*-source.png
+
+# Older prototype sprites kept locally but not needed by the deployed game.
+assets/black-cat.png
+assets/yellow-cat.png
+assets/yellow-cat-leap.png
+assets/kokko.png
+assets/kokko-back.png
+
+# Local browser screenshots or temp files.
+*.tmp
+*.log
+kokko-screen*.png
