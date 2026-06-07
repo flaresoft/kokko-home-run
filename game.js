@@ -43,6 +43,12 @@
     yellowCatHappy: loadImage("assets/cat-yellow-happy.png"),
     blackCat: loadImage("assets/cat-black.png"),
     home: loadImage("assets/home-cottage_origin.png"),
+    croissantFlowers: [
+      loadImage("assets/croissant-flower-01.png"),
+      loadImage("assets/croissant-flower-02.png"),
+      loadImage("assets/croissant-flower-03.png"),
+      loadImage("assets/croissant-flower-04.png"),
+    ],
   };
 
   const homeSprite = {
@@ -295,6 +301,7 @@
         flower.depth = random(0, 0.1);
         flower.lane = random(-1.8, 1.8);
         flower.side = Math.random() > 0.5 ? 1 : -1;
+        resetFlowerLook(flower);
       }
     }
 
@@ -422,7 +429,11 @@
     for (const flower of state.flowers) {
       const p = perspectivePoint(flower.lane * 1.28 + flower.side * 1.3, flower.depth);
       const scale = 0.3 + flower.depth * 0.9;
-      drawFlower(p.x, p.y, scale, flower.color);
+      if (flower.kind === "croissant") {
+        drawCroissantFlower(flower, p.x, p.y);
+      } else {
+        drawFlower(p.x, p.y, scale, flower.color);
+      }
     }
   }
 
@@ -683,13 +694,18 @@
 
     state.flowers = [];
     for (let i = 0; i < 54; i += 1) {
-      state.flowers.push({
+      const flower = {
         lane: random(-1.8, 1.8),
         side: Math.random() > 0.5 ? 1 : -1,
         depth: random(0, 1),
         speed: random(0.7, 1.2),
         color: ["#fff6a9", "#f48ba8", "#ffcf4c", "#ffffff", "#ef6f58"][i % 5],
-      });
+        kind: "normal",
+        imageIndex: 0,
+        flip: 1,
+      };
+      resetFlowerLook(flower, i);
+      state.flowers.push(flower);
     }
   }
 
@@ -737,6 +753,30 @@
     ctx.arc(0, -8, 3, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
+  }
+
+  function drawCroissantFlower(flower, x, y) {
+    const image = images.croissantFlowers[flower.imageIndex];
+    const h = 22 + flower.depth * 42;
+    const w = h * 0.92;
+    const sway = Math.sin(state.distance * 0.025 + flower.imageIndex * 1.7 + flower.depth * 5) * flower.depth * 1.5;
+
+    ctx.save();
+    ctx.translate(x + sway, y + 5);
+    ctx.scale(flower.flip, 1);
+    if (image && image.complete && image.naturalWidth) {
+      ctx.drawImage(image, -w / 2, -h, w, h);
+    } else {
+      drawFlower(0, 0, 0.9 + flower.depth * 0.5, "#f4a7ad");
+    }
+    ctx.restore();
+  }
+
+  function resetFlowerLook(flower, seed = Math.floor(Math.random() * 1000)) {
+    flower.kind = Math.random() < 0.8 ? "croissant" : "normal";
+    flower.imageIndex = seed % images.croissantFlowers.length;
+    flower.flip = Math.random() > 0.5 ? 1 : -1;
+    flower.color = ["#fff6a9", "#f48ba8", "#ffcf4c", "#ffffff", "#ef6f58"][seed % 5];
   }
 
   function grassClump(x, y, s) {

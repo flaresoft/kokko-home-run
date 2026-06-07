@@ -1,6 +1,7 @@
 # Keep generated source/chroma-key files local.
 assets/*-source.png
 assets/*-asset.png
+assets/sandwitchcroissant.png
 
 # Older prototype sprites kept locally but not needed by the deployed game.
 assets/black-cat.png
