@@ -26,6 +26,13 @@
   const homeRevealDistance = goalDistance * 0.62;
   const homeRevealEndDistance = goalDistance * 0.94;
   const homeObstacleStopDistance = goalDistance * 0.58;
+  const itemStopDistance = goalDistance * 0.82;
+  const finishLineVisibleDistance = 320;
+  const celebrationWalkSeconds = 2.4;
+  const celebrationTurnSeconds = 0.42;
+  const celebrationWaveSeconds = 1.55;
+  const sandwichInvincibleSeconds = 5;
+  const goldenObstaclePauseSeconds = 3;
   const minCollisionSpeed = 118;
   const collisionPenalty = {
     puddle: { speed: 62, distance: 26 },
@@ -39,10 +46,15 @@
       loadImage("assets/kokko-run-3.png"),
       loadImage("assets/kokko-run-2.png"),
     ],
+    kokkoWalkAway: loadImage("assets/kokko-walk-away-sheet.png"),
+    kokkoFront: loadImage("assets/kokko.png"),
     yellowCat: loadImage("assets/cat-yellow.png"),
     yellowCatHappy: loadImage("assets/cat-yellow-happy.png"),
     blackCat: loadImage("assets/cat-black.png"),
+    blackCatBlock: loadImage("assets/cat-black-block.png"),
     home: loadImage("assets/home-cottage_origin.png"),
+    sandwich: loadImage("assets/sandwitch-croissant.png"),
+    goldenCroissant: loadImage("assets/golden-croissant.png"),
     croissantFlowers: [
       loadImage("assets/croissant-flower-01.png"),
       loadImage("assets/croissant-flower-02.png"),
@@ -65,9 +77,13 @@
     distance: 0,
     speed: 178,
     spawnTimer: 0.8,
+    itemSpawnTimer: 2.8,
+    invincibleTimer: 0,
+    obstaclePauseTimer: 0,
     shake: 0,
     message: "",
     messageTimer: 0,
+    finishSuccess: false,
     lane: 0,
     targetLane: 0,
     laneX: 0,
@@ -76,7 +92,9 @@
     playerPulse: 0,
     runFrame: 0,
     runFrameTimer: 0,
+    celebrationTimer: 0,
     obstacles: [],
+    items: [],
     flowers: [],
     clouds: [],
     dust: [],
@@ -186,9 +204,13 @@
     state.distance = 0;
     state.speed = 178;
     state.spawnTimer = 0.65;
+    state.itemSpawnTimer = 2.8;
+    state.invincibleTimer = 0;
+    state.obstaclePauseTimer = 0;
     state.shake = 0;
     state.message = "";
     state.messageTimer = 0;
+    state.finishSuccess = false;
     state.lane = 0;
     state.targetLane = 0;
     state.laneX = 0;
@@ -197,7 +219,9 @@
     state.playerPulse = 0;
     state.runFrame = 0;
     state.runFrameTimer = 0;
+    state.celebrationTimer = 0;
     state.obstacles = [];
+    state.items = [];
     state.dust = [];
     overlay.classList.add("is-hidden");
     requestAnimationFrame(loop);
@@ -209,10 +233,12 @@
 
     if (state.mode === "running") {
       update(dt);
+    } else if (state.mode === "celebrating") {
+      updateCelebration(dt);
     }
 
     draw(dt);
-    if (state.mode === "running") {
+    if (state.mode === "running" || state.mode === "celebrating") {
       requestAnimationFrame(loop);
     }
   }
@@ -237,6 +263,9 @@
     state.distance += (state.speed * dt) / 4;
     state.speed = Math.min(255, state.speed + dt * 3.5);
     state.spawnTimer -= dt;
+    state.itemSpawnTimer -= dt;
+    state.invincibleTimer = Math.max(0, state.invincibleTimer - dt);
+    state.obstaclePauseTimer = Math.max(0, state.obstaclePauseTimer - dt);
     state.shake = Math.max(0, state.shake - dt * 18);
     state.messageTimer = Math.max(0, state.messageTimer - dt);
     if (isGrounded()) {
@@ -262,13 +291,22 @@
     }
 
     if (state.spawnTimer <= 0) {
-      if (state.distance < homeObstacleStopDistance) {
+      if (state.obstaclePauseTimer > 0) {
+        state.spawnTimer = 0.12;
+      } else if (state.distance < homeObstacleStopDistance) {
         spawnObstacle();
         const pressure = Math.min(0.34, state.distance / goalDistance * 0.22);
         state.spawnTimer = random(0.78, 1.22) - pressure;
       } else {
         state.spawnTimer = 0.35;
       }
+    }
+
+    if (state.itemSpawnTimer <= 0) {
+      if (state.distance < itemStopDistance) {
+        spawnItem();
+      }
+      state.itemSpawnTimer = random(5.2, 7.4);
     }
 
     for (const obstacle of state.obstacles) {
@@ -280,12 +318,25 @@
       if (!obstacle.hit && obstacle.depth >= 0.83 && obstacle.depth <= 1.08 && obstacle.lane === state.targetLane) {
         const clear = obstacle.type === "puddle" ? state.jumpT > 0.16 : state.jumpT > 0.47;
         if (!clear) {
-          hitObstacle(obstacle);
+          if (state.invincibleTimer > 0) {
+            blockObstacle(obstacle);
+          } else {
+            hitObstacle(obstacle);
+          }
         }
       }
     }
     const minObstacleDepth = state.distance >= homeRevealDistance ? 0.34 : -0.08;
     state.obstacles = state.obstacles.filter((obstacle) => obstacle.depth < 1.22 && obstacle.depth >= minObstacleDepth);
+
+    for (const item of state.items) {
+      item.depth += dt * item.speed;
+      item.wobble += dt;
+      if (!item.collected && item.depth >= 0.82 && item.depth <= 1.1 && item.lane === state.targetLane) {
+        collectItem(item);
+      }
+    }
+    state.items = state.items.filter((item) => !item.collected && item.depth < 1.2);
 
     for (const cloud of state.clouds) {
       cloud.x -= dt * cloud.speed;
@@ -314,12 +365,25 @@
     state.dust = state.dust.filter((particle) => particle.life > 0);
 
     if (state.distance >= goalDistance) {
-      finish(true);
+      beginCelebration();
       return;
     }
 
     if (state.elapsed >= gameSeconds) {
       finish(false);
+    }
+  }
+
+  function updateCelebration(dt) {
+    state.celebrationTimer += dt;
+    state.runFrameTimer += dt;
+    while (state.runFrameTimer >= 0.18) {
+      state.runFrameTimer -= 0.18;
+      state.runFrame = (state.runFrame + 1) % 4;
+    }
+
+    if (state.celebrationTimer >= celebrationWalkSeconds + celebrationTurnSeconds + celebrationWaveSeconds) {
+      finish(true);
     }
   }
 
@@ -335,6 +399,18 @@
       hit: false,
       hitAge: 0,
       wobble: random(0, 10),
+    });
+  }
+
+  function spawnItem() {
+    const type = Math.random() < 0.64 ? "sandwich" : "golden";
+    state.items.push({
+      type,
+      lane: [-1, 0, 1][Math.floor(Math.random() * 3)],
+      depth: -0.04,
+      speed: random(0.42, 0.5) + state.speed / 1000,
+      wobble: random(0, 10),
+      collected: false,
     });
   }
 
@@ -359,8 +435,56 @@
     makeDust(playerScreenX(), playerBaseY - 20, obstacle.type === "puddle" ? 15 : 10);
   }
 
+  function blockObstacle(obstacle) {
+    obstacle.hit = true;
+    obstacle.hitAge = 0;
+    state.shake = Math.max(state.shake, 3);
+    state.message = "무적!";
+    state.messageTimer = 0.45;
+    makeDust(playerScreenX(), playerBaseY - 20, 8);
+  }
+
+  function collectItem(item) {
+    item.collected = true;
+    if (item.type === "sandwich") {
+      state.invincibleTimer = sandwichInvincibleSeconds;
+      state.message = "무적!";
+      state.messageTimer = 0.9;
+      makeDust(playerScreenX(), playerBaseY - 32, 18);
+      return;
+    }
+
+    state.obstacles = [];
+    state.obstaclePauseTimer = goldenObstaclePauseSeconds;
+    state.spawnTimer = Math.max(state.spawnTimer, goldenObstaclePauseSeconds);
+    state.shake = Math.max(state.shake, 5);
+    state.message = "싹!";
+    state.messageTimer = 0.9;
+    makeDust(playerScreenX(), playerBaseY - 36, 24);
+  }
+
+  function beginCelebration() {
+    state.mode = "celebrating";
+    state.distance = goalDistance;
+    state.speed = 0;
+    state.shake = 0;
+    state.message = "";
+    state.messageTimer = 0;
+    state.invincibleTimer = 0;
+    state.obstaclePauseTimer = 0;
+    state.celebrationTimer = 0;
+    state.runFrame = 0;
+    state.runFrameTimer = 0;
+    state.lane = 0;
+    state.targetLane = 0;
+    state.obstacles = [];
+    state.items = [];
+    state.dust = [];
+  }
+
   function finish(success) {
     state.mode = "ended";
+    state.finishSuccess = success;
     const score = Math.min(goalDistance, state.distance);
     if (score > best) {
       best = score;
@@ -386,7 +510,11 @@
     drawRoad();
     drawTrackDetails();
     drawDepthSortedObjects();
-    drawPlayer();
+    if (state.mode === "celebrating" || (state.mode === "ended" && state.finishSuccess)) {
+      drawCelebrationPlayer();
+    } else {
+      drawPlayer();
+    }
     drawDust();
     drawMessage();
     ctx.restore();
@@ -458,15 +586,74 @@
 
     ctx.strokeStyle = "rgba(255, 253, 229, 0.4)";
     ctx.lineWidth = 3;
-    for (let d = ((state.distance / 70) % 1) - 0.15; d < 1.15; d += 0.18) {
-      const lineDepth = clamp(d, 0, 1.15);
-      const y = roadTopCenterY + 8 + Math.pow(lineDepth, 1.7) * (H - roadTopCenterY + 10);
-      const w = 42 + lineDepth * 340;
+    const stripeSpacing = 0.18;
+    const stripePhase = (state.distance / 70) % stripeSpacing;
+    for (let d = stripePhase; d < 1.15; d += stripeSpacing) {
+      const y = roadYForDepth(d);
+      const w = roadHalfWidthForDepth(d);
       ctx.beginPath();
       ctx.moveTo(W / 2 - w, y);
       ctx.lineTo(W / 2 + w, y);
       ctx.stroke();
     }
+
+    drawFinishLine();
+  }
+
+  function drawFinishLine() {
+    const remaining = goalDistance - state.distance;
+    if (remaining > finishLineVisibleDistance) {
+      return;
+    }
+
+    const progress = clamp(1 - remaining / finishLineVisibleDistance, 0, 1);
+    const depth = 0.06 + Math.pow(progress, 0.9) * 0.78;
+    const farDepth = clamp(depth, 0, 0.9);
+    const nearDepth = clamp(depth + 0.035 + depth * 0.018, 0, 0.94);
+    const columns = 14;
+    const rows = 2;
+
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, progress * 3);
+    for (let row = 0; row < rows; row += 1) {
+      const rowTop = row / rows;
+      const rowBottom = (row + 1) / rows;
+      const topDepth = farDepth + (nearDepth - farDepth) * rowTop;
+      const bottomDepth = farDepth + (nearDepth - farDepth) * rowBottom;
+      const topY = roadYForDepth(topDepth);
+      const bottomY = roadYForDepth(bottomDepth);
+      const topHalf = roadHalfWidthForDepth(topDepth) * 0.96;
+      const bottomHalf = roadHalfWidthForDepth(bottomDepth) * 0.96;
+
+      for (let column = 0; column < columns; column += 1) {
+        const leftRatio = column / columns;
+        const rightRatio = (column + 1) / columns;
+        const topLeft = W / 2 - topHalf + topHalf * 2 * leftRatio;
+        const topRight = W / 2 - topHalf + topHalf * 2 * rightRatio;
+        const bottomLeft = W / 2 - bottomHalf + bottomHalf * 2 * leftRatio;
+        const bottomRight = W / 2 - bottomHalf + bottomHalf * 2 * rightRatio;
+
+        ctx.fillStyle = (row + column) % 2 === 0 ? "rgba(255, 253, 235, 0.96)" : "rgba(126, 91, 45, 0.72)";
+        ctx.beginPath();
+        ctx.moveTo(topLeft, topY);
+        ctx.lineTo(topRight, topY);
+        ctx.lineTo(bottomRight, bottomY);
+        ctx.lineTo(bottomLeft, bottomY);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    ctx.strokeStyle = "rgba(126, 91, 45, 0.34)";
+    ctx.lineWidth = 2 + farDepth * 2;
+    ctx.beginPath();
+    ctx.moveTo(W / 2 - roadHalfWidthForDepth(farDepth) * 0.96, roadYForDepth(farDepth));
+    ctx.lineTo(W / 2 + roadHalfWidthForDepth(farDepth) * 0.96, roadYForDepth(farDepth));
+    ctx.lineTo(W / 2 + roadHalfWidthForDepth(nearDepth) * 0.96, roadYForDepth(nearDepth));
+    ctx.lineTo(W / 2 - roadHalfWidthForDepth(nearDepth) * 0.96, roadYForDepth(nearDepth));
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawHome() {
@@ -522,12 +709,18 @@
   }
 
   function drawDepthSortedObjects() {
-    const objects = [...state.obstacles].sort((a, b) => a.depth - b.depth);
-    for (const obstacle of objects) {
-      if (obstacle.type === "puddle") {
-        drawPuddle(obstacle);
+    const objects = [
+      ...state.obstacles.map((obstacle) => ({ kind: "obstacle", value: obstacle })),
+      ...state.items.map((item) => ({ kind: "item", value: item })),
+    ].sort((a, b) => a.value.depth - b.value.depth);
+
+    for (const object of objects) {
+      if (object.kind === "item") {
+        drawItem(object.value);
+      } else if (object.value.type === "puddle") {
+        drawPuddle(object.value);
       } else {
-        drawCat(obstacle);
+        drawCat(object.value);
       }
     }
   }
@@ -554,15 +747,22 @@
     const p = perspectivePoint(obstacle.lane, obstacle.depth);
     const scale = scaleForDepth(obstacle.depth);
     const happyYellow = obstacle.type === "yellowCat" && obstacle.hit;
-    const image = happyYellow ? images.yellowCatHappy : obstacle.type === "yellowCat" ? images.yellowCat : images.blackCat;
-    const baseW = happyYellow ? 132 : obstacle.type === "yellowCat" ? 78 : 84;
-    const baseH = happyYellow ? 80 : obstacle.type === "yellowCat" ? 104 : 118;
+    const blockingBlack = obstacle.type === "blackCat" && obstacle.hit;
+    const image = happyYellow
+      ? images.yellowCatHappy
+      : blockingBlack
+        ? images.blackCatBlock
+        : obstacle.type === "yellowCat"
+          ? images.yellowCat
+          : images.blackCat;
+    const baseW = happyYellow ? 132 : blockingBlack ? 128 : obstacle.type === "yellowCat" ? 78 : 84;
+    const baseH = happyYellow ? 80 : blockingBlack ? 170 : obstacle.type === "yellowCat" ? 104 : 118;
     const w = baseW * scale;
     const h = baseH * scale;
-    const bob = Math.sin(obstacle.wobble * 5) * (happyYellow ? 1.5 : 3) * scale;
+    const bob = Math.sin(obstacle.wobble * 5) * (happyYellow || blockingBlack ? 1.5 : 3) * scale;
 
     ctx.save();
-    ctx.globalAlpha = obstacle.hit && !happyYellow ? 0.5 : 1;
+    ctx.globalAlpha = obstacle.hit && !happyYellow && !blockingBlack ? 0.5 : 1;
     ctx.translate(p.x, p.y + bob);
     ctx.rotate(happyYellow ? Math.sin(obstacle.wobble * 5.5) * 0.035 : Math.sin(obstacle.wobble * 2.2) * 0.03);
     if (image.complete && image.naturalWidth) {
@@ -570,6 +770,35 @@
     } else {
       ctx.fillStyle = obstacle.type === "yellowCat" ? "#f6c85a" : "#222638";
       ctx.fillRect(-w / 2, -h, w, h);
+    }
+    ctx.restore();
+  }
+
+  function drawItem(item) {
+    const p = perspectivePoint(item.lane, item.depth);
+    const scale = scaleForDepth(item.depth);
+    const image = item.type === "sandwich" ? images.sandwich : images.goldenCroissant;
+    const baseW = item.type === "sandwich" ? 86 : 76;
+    const baseH = item.type === "sandwich" ? 84 : 70;
+    const w = baseW * scale;
+    const h = baseH * scale;
+    const bob = Math.sin(item.wobble * 5.4) * 5 * scale;
+    const halo = 18 * scale + Math.sin(item.wobble * 6) * 2;
+
+    ctx.save();
+    ctx.translate(p.x, p.y + bob);
+    ctx.fillStyle = item.type === "sandwich" ? "rgba(255, 255, 255, 0.32)" : "rgba(255, 236, 95, 0.42)";
+    ctx.beginPath();
+    ctx.arc(0, -h * 0.48, halo, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.rotate(Math.sin(item.wobble * 2.2) * 0.08);
+    if (image.complete && image.naturalWidth) {
+      ctx.drawImage(image, -w / 2, -h, w, h);
+    } else {
+      ctx.fillStyle = item.type === "sandwich" ? "#f3a155" : "#ffd925";
+      ctx.beginPath();
+      ctx.ellipse(0, -h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.restore();
   }
@@ -589,6 +818,19 @@
     ctx.ellipse(x, playerBaseY + 10, 54 * (1 - jump * 0.25), 12 * (1 - jump * 0.35), 0, 0, Math.PI * 2);
     ctx.fill();
 
+    if (state.invincibleTimer > 0) {
+      const auraAlpha = 0.22 + Math.sin(state.elapsed * 14) * 0.06;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 236, 104, ${auraAlpha + 0.18})`;
+      ctx.fillStyle = `rgba(255, 246, 168, ${auraAlpha})`;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.ellipse(x, y - 68, 72 + Math.sin(state.elapsed * 9) * 3, 88, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(lean + Math.sin(state.playerPulse * 0.65) * 0.035);
@@ -596,6 +838,88 @@
       ctx.drawImage(image, -w / 2, -h + 20, w, h);
     } else {
       fallbackKokko(-w / 2, -h, w, h);
+    }
+    ctx.restore();
+  }
+
+  function drawCelebrationPlayer() {
+    const walkProgress = clamp(state.celebrationTimer / celebrationWalkSeconds, 0, 1);
+    const easedWalk = easeInOut(walkProgress);
+    const depth = 1.02 + (0.58 - 1.02) * easedWalk;
+    const p = perspectivePoint(0, depth);
+    const scale = 1 - easedWalk * 0.28;
+    const baselineY = p.y + 18 * scale;
+
+    if (state.celebrationTimer < celebrationWalkSeconds) {
+      drawKokkoWalkAway(p.x, baselineY, scale, state.runFrame);
+      return;
+    }
+
+    const turnTimer = state.celebrationTimer - celebrationWalkSeconds;
+    if (turnTimer < celebrationTurnSeconds) {
+      const turnProgress = clamp(turnTimer / celebrationTurnSeconds, 0, 1);
+      if (turnProgress < 0.5) {
+        const squash = 1 - turnProgress * 1.7;
+        drawKokkoWalkAway(p.x, baselineY, scale, state.runFrame, Math.max(0.15, squash));
+      } else {
+        const stretch = (turnProgress - 0.5) * 2;
+        drawKokkoFront(p.x, baselineY, scale, 0, Math.max(0.15, stretch));
+      }
+      return;
+    }
+
+    const waveTimer = state.celebrationTimer - celebrationWalkSeconds - celebrationTurnSeconds;
+    const wave = Math.sin(waveTimer * 11);
+    drawKokkoFront(p.x, baselineY, scale, wave * 0.045, 1);
+    drawWaveMarks(p.x + 43 * scale, baselineY - 130 * scale, scale, waveTimer);
+  }
+
+  function drawKokkoWalkAway(x, baselineY, scale, frame, scaleX = 1) {
+    const image = images.kokkoWalkAway;
+    const fallback = images.kokkoRun[frame % images.kokkoRun.length] || images.kokkoRun[0];
+    const source = image.complete && image.naturalWidth ? image : fallback;
+    const frameCount = source === image ? 4 : 1;
+    const frameW = source.naturalWidth / frameCount;
+    const frameH = source.naturalHeight;
+    const sourceX = source === image ? Math.floor(frame % 4) * frameW : 0;
+    const w = 124 * scale;
+    const h = 190 * scale;
+
+    ctx.save();
+    ctx.translate(x, baselineY);
+    ctx.scale(scaleX, 1);
+    ctx.drawImage(source, sourceX, 0, frameW, frameH, -w / 2, -h, w, h);
+    ctx.restore();
+  }
+
+  function drawKokkoFront(x, baselineY, scale, rotation = 0, scaleX = 1) {
+    const image = images.kokkoFront;
+    const w = 112 * scale;
+    const h = 154 * scale;
+
+    ctx.save();
+    ctx.translate(x, baselineY);
+    ctx.rotate(rotation);
+    ctx.scale(scaleX, 1);
+    if (image.complete && image.naturalWidth) {
+      ctx.drawImage(image, -w / 2, -h + 6 * scale, w, h);
+    } else {
+      fallbackKokko(-w / 2, -h, w, h);
+    }
+    ctx.restore();
+  }
+
+  function drawWaveMarks(x, y, scale, timer) {
+    const alpha = 0.35 + Math.sin(timer * 12) * 0.12;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255, 253, 229, ${alpha})`;
+    ctx.lineWidth = Math.max(1, 2.2 * scale);
+    ctx.lineCap = "round";
+    for (let i = 0; i < 2; i += 1) {
+      const r = (12 + i * 9 + Math.sin(timer * 9 + i) * 1.5) * scale;
+      ctx.beginPath();
+      ctx.arc(x + i * 5 * scale, y - i * 7 * scale, r, -0.9, 0.65);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -635,6 +959,16 @@
     const y = roadTopCenterY + 8 + Math.pow(d, 1.58) * (playerBaseY - roadTopCenterY - 8);
     const x = W / 2 + laneOffset(lane, d);
     return { x, y };
+  }
+
+  function roadYForDepth(depth) {
+    const d = clamp(depth, 0, 1.15);
+    return roadTopCenterY + 8 + Math.pow(d, 1.7) * (H - roadTopCenterY + 10);
+  }
+
+  function roadHalfWidthForDepth(depth) {
+    const d = clamp(depth, 0, 1.15);
+    return 42 + d * 340;
   }
 
   function laneOffset(lane, depth) {
@@ -858,6 +1192,11 @@
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
+  }
+
+  function easeInOut(value) {
+    const t = clamp(value, 0, 1);
+    return t * t * (3 - 2 * t);
   }
 
   function random(min, max) {
