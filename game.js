@@ -19,6 +19,18 @@
   const playerBaseY = 470;
   const goalDistance = 1650;
   const gameSeconds = 45;
+  const ridgeCenterY = horizonY + 42;
+  const ridgeSideY = horizonY + 78;
+  const roadTopCenterY = horizonY + 56;
+  const roadTopSideY = horizonY + 70;
+  const homeRevealDistance = goalDistance * 0.62;
+  const homeRevealEndDistance = goalDistance * 0.94;
+  const homeObstacleStopDistance = goalDistance * 0.58;
+  const minCollisionSpeed = 118;
+  const collisionPenalty = {
+    puddle: { speed: 62, distance: 26 },
+    cat: { speed: 86, distance: 42 },
+  };
 
   const images = {
     kokkoRun: [
@@ -30,6 +42,14 @@
     yellowCat: loadImage("assets/cat-yellow.png"),
     yellowCatHappy: loadImage("assets/cat-yellow-happy.png"),
     blackCat: loadImage("assets/cat-black.png"),
+    home: loadImage("assets/home-cottage_origin.png"),
+  };
+
+  const homeSprite = {
+    sx: 75,
+    sy: 287,
+    sw: 2392,
+    sh: 1876,
   };
 
   const state = {
@@ -236,9 +256,13 @@
     }
 
     if (state.spawnTimer <= 0) {
-      spawnObstacle();
-      const pressure = Math.min(0.34, state.distance / goalDistance * 0.22);
-      state.spawnTimer = random(0.78, 1.22) - pressure;
+      if (state.distance < homeObstacleStopDistance) {
+        spawnObstacle();
+        const pressure = Math.min(0.34, state.distance / goalDistance * 0.22);
+        state.spawnTimer = random(0.78, 1.22) - pressure;
+      } else {
+        state.spawnTimer = 0.35;
+      }
     }
 
     for (const obstacle of state.obstacles) {
@@ -254,7 +278,8 @@
         }
       }
     }
-    state.obstacles = state.obstacles.filter((obstacle) => obstacle.depth < 1.22);
+    const minObstacleDepth = state.distance >= homeRevealDistance ? 0.34 : -0.08;
+    state.obstacles = state.obstacles.filter((obstacle) => obstacle.depth < 1.22 && obstacle.depth >= minObstacleDepth);
 
     for (const cloud of state.clouds) {
       cloud.x -= dt * cloud.speed;
@@ -316,11 +341,12 @@
   }
 
   function hitObstacle(obstacle) {
+    const penalty = obstacle.type === "puddle" ? collisionPenalty.puddle : collisionPenalty.cat;
     obstacle.hit = true;
     obstacle.hitAge = 0;
     state.shake = obstacle.type === "puddle" ? 5 : 8;
-    state.speed = Math.max(150, state.speed - (obstacle.type === "puddle" ? 36 : 48));
-    state.distance = Math.max(0, state.distance - (obstacle.type === "puddle" ? 10 : 18));
+    state.speed = Math.max(minCollisionSpeed, state.speed - penalty.speed);
+    state.distance = Math.max(0, state.distance - penalty.distance);
     state.message = obstacle.type === "puddle" ? "첨벙!" : "길막!";
     state.messageTimer = 0.7;
     makeDust(playerScreenX(), playerBaseY - 20, obstacle.type === "puddle" ? 15 : 10);
@@ -348,9 +374,9 @@
     ctx.save();
     ctx.translate(sx, sy);
     drawSky();
+    drawHome();
     drawField();
     drawRoad();
-    drawHome();
     drawTrackDetails();
     drawDepthSortedObjects();
     drawPlayer();
@@ -385,7 +411,13 @@
 
   function drawField() {
     ctx.fillStyle = "#7fc866";
-    ctx.fillRect(0, 250, W, H - 250);
+    ctx.beginPath();
+    ctx.moveTo(0, ridgeSideY);
+    ctx.quadraticCurveTo(W / 2, ridgeCenterY, W, ridgeSideY);
+    ctx.lineTo(W, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fill();
 
     for (const flower of state.flowers) {
       const p = perspectivePoint(flower.lane * 1.28 + flower.side * 1.3, flower.depth);
@@ -397,8 +429,8 @@
   function drawRoad() {
     ctx.fillStyle = "#d9b46d";
     ctx.beginPath();
-    ctx.moveTo(W / 2 - 78, horizonY + 16);
-    ctx.lineTo(W / 2 + 78, horizonY + 16);
+    ctx.moveTo(W / 2 - 78, roadTopSideY);
+    ctx.quadraticCurveTo(W / 2, roadTopCenterY, W / 2 + 78, roadTopSideY);
     ctx.lineTo(W + 104, H + 40);
     ctx.lineTo(-104, H + 40);
     ctx.closePath();
@@ -407,17 +439,18 @@
     ctx.strokeStyle = "rgba(126, 91, 45, 0.22)";
     ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.moveTo(W / 2 - 25, horizonY + 18);
+    ctx.moveTo(W / 2 - 25, roadTopCenterY + 3);
     ctx.lineTo(W / 2 - 185, H + 20);
-    ctx.moveTo(W / 2 + 25, horizonY + 18);
+    ctx.moveTo(W / 2 + 25, roadTopCenterY + 3);
     ctx.lineTo(W / 2 + 185, H + 20);
     ctx.stroke();
 
     ctx.strokeStyle = "rgba(255, 253, 229, 0.4)";
     ctx.lineWidth = 3;
     for (let d = ((state.distance / 70) % 1) - 0.15; d < 1.15; d += 0.18) {
-      const y = horizonY + 22 + Math.pow(d, 1.7) * (H - horizonY + 20);
-      const w = 42 + d * 340;
+      const lineDepth = clamp(d, 0, 1.15);
+      const y = roadTopCenterY + 8 + Math.pow(lineDepth, 1.7) * (H - roadTopCenterY + 10);
+      const w = 42 + lineDepth * 340;
       ctx.beginPath();
       ctx.moveTo(W / 2 - w, y);
       ctx.lineTo(W / 2 + w, y);
@@ -426,14 +459,45 @@
   }
 
   function drawHome() {
-    const progress = state.distance / goalDistance;
-    if (progress < 0.7) {
+    const progress = clamp((state.distance - homeRevealDistance) / (homeRevealEndDistance - homeRevealDistance), 0, 1);
+    if (progress <= 0) {
       return;
     }
-    const d = (progress - 0.7) / 0.3;
-    const scale = 0.35 + d * 0.55;
-    const y = horizonY + 38 + d * 18;
-    drawHouse(W / 2, y, scale);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const reveal = Math.pow(progress, 1.22);
+    const width = 54 + eased * 184;
+    const height = width * (homeSprite.sh / homeSprite.sw);
+    const horizonCutY = ridgeCenterY - 5;
+    const finalGroundY = roadTopCenterY + 4;
+    const hiddenGroundY = horizonCutY + height + 8;
+    const groundY = hiddenGroundY + (finalGroundY - hiddenGroundY) * eased;
+    const revealY = horizonCutY + (groundY + 10 - horizonCutY) * reveal;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, W, revealY);
+    ctx.clip();
+    ctx.fillStyle = `rgba(52, 73, 43, ${0.04 + eased * 0.12})`;
+    ctx.beginPath();
+    ctx.ellipse(W / 2, groundY + 8, width * 0.38, 10 + eased * 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (images.home.complete && images.home.naturalWidth) {
+      ctx.drawImage(
+        images.home,
+        homeSprite.sx,
+        homeSprite.sy,
+        homeSprite.sw,
+        homeSprite.sh,
+        W / 2 - width / 2,
+        groundY - height,
+        width,
+        height,
+      );
+    } else {
+      drawHouse(W / 2, groundY - 72 * (width / 150), width / 150);
+    }
+    ctx.restore();
   }
 
   function drawTrackDetails() {
@@ -557,7 +621,7 @@
 
   function perspectivePoint(lane, depth) {
     const d = clamp(depth, 0, 1.12);
-    const y = horizonY + 24 + Math.pow(d, 1.58) * (playerBaseY - horizonY);
+    const y = roadTopCenterY + 8 + Math.pow(d, 1.58) * (playerBaseY - roadTopCenterY - 8);
     const x = W / 2 + laneOffset(lane, d);
     return { x, y };
   }

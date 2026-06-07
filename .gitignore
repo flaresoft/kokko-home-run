@@ -1,5 +1,6 @@
 # Keep generated source/chroma-key files local.
 assets/*-source.png
+assets/*-asset.png
 
 # Older prototype sprites kept locally but not needed by the deployed game.
 assets/black-cat.png
@@ -12,3 +13,8 @@ assets/kokko-back.png
 *.tmp
 *.log
 kokko-screen*.png
+
+# Local Node/Playwright dependencies.
+node_modules/
+playwright-report/
+test-results/

@@ -1,0 +1,11 @@
+{
+  "name": "kokko-home-run",
+  "private": true,
+  "scripts": {
+    "browser": "playwright",
+    "check": "node --check game.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}
