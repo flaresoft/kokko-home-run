@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>꼬꼬의 귀가길 — 실시간 순위</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+      .board-body {
+        place-items: start center;
+        overflow: auto;
+      }
+      .board {
+        width: min(720px, 96vw);
+        margin: 0 auto;
+        padding: 24px 18px 48px;
+      }
+      .board-head {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .board-head h1 {
+        margin: 0;
+        font-size: clamp(24px, 4.5vw, 40px);
+      }
+      .board-head p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .big-board {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 8px;
+      }
+      .big-board li {
+        display: grid;
+        grid-template-columns: 64px 1fr auto;
+        align-items: center;
+        gap: 14px;
+        padding: 14px 18px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 253, 245, 0.9);
+        box-shadow: 0 10px 24px rgba(73, 103, 68, 0.12);
+        font-size: clamp(18px, 2.6vw, 26px);
+      }
+      .big-board li.rank-1 { border-color: #f0b429; background: rgba(240, 180, 41, 0.16); }
+      .big-board li.rank-2 { border-color: #b9c2c8; background: rgba(185, 194, 200, 0.18); }
+      .big-board li.rank-3 { border-color: #d8964e; background: rgba(216, 150, 78, 0.16); }
+      .bb-rank {
+        font-weight: 900;
+        text-align: center;
+      }
+      .bb-name {
+        font-weight: 700;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .bb-metric {
+        color: var(--muted);
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .board-empty {
+        text-align: center;
+        color: var(--muted);
+        margin-top: 30px;
+      }
+    </style>
+  </head>
+  <body class="board-body">
+    <main class="board">
+      <header class="board-head">
+        <h1>🐤 꼬꼬의 귀가길 · 실시간 순위</h1>
+        <p>완주는 빠른 시간 순, 미완주는 이동 거리 순 · 자동 갱신</p>
+      </header>
+      <ol id="bigBoard" class="big-board"></ol>
+      <p id="boardEmpty" class="board-empty">아직 등록된 기록이 없어요. 첫 주자가 되어보세요!</p>
+    </main>
+
+    <script type="module" src="leaderboard.js"></script>
+    <script>
+      function renderBig(rows) {
+        const board = document.getElementById("bigBoard");
+        const empty = document.getElementById("boardEmpty");
+        const top = rows.slice(0, 20);
+        empty.style.display = top.length ? "none" : "block";
+        board.textContent = "";
+        top.forEach((row, i) => {
+          const li = document.createElement("li");
+          if (i < 3) li.classList.add(`rank-${i + 1}`);
+
+          const rankEl = document.createElement("span");
+          rankEl.className = "bb-rank";
+          rankEl.textContent = ["🥇", "🥈", "🥉"][i] || String(i + 1);
+
+          const nameEl = document.createElement("span");
+          nameEl.className = "bb-name";
+          nameEl.textContent = row.nickname || "익명";
+
+          const metricEl = document.createElement("span");
+          metricEl.className = "bb-metric";
+          metricEl.textContent = row.finished
+            ? `${(row.elapsedMs / 1000).toFixed(1)}초 완주`
+            : `${row.distance}m`;
+
+          li.append(rankEl, nameEl, metricEl);
+          board.appendChild(li);
+        });
+      }
+
+      function start() {
+        window.KokkoLB.subscribeTop(renderBig);
+      }
+
+      if (window.KokkoLB) {
+        start();
+      } else {
+        window.addEventListener("kokko-lb-ready", start, { once: true });
+      }
+    </script>
+  </body>
+</html>

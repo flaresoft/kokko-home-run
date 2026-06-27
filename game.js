@@ -12,6 +12,14 @@
   const leftButton = document.getElementById("leftButton");
   const jumpButton = document.getElementById("jumpButton");
   const rightButton = document.getElementById("rightButton");
+  const submitArea = document.getElementById("submitArea");
+  const nickInput = document.getElementById("nickInput");
+  const contactInput = document.getElementById("contactInput");
+  const submitScoreButton = document.getElementById("submitScoreButton");
+  const submitStatus = document.getElementById("submitStatus");
+  const leaderboardArea = document.getElementById("leaderboardArea");
+  const leaderboardList = document.getElementById("leaderboardList");
+  const myRankText = document.getElementById("myRankText");
 
   const W = canvas.width;
   const H = canvas.height;
@@ -34,6 +42,11 @@
   const sandwichInvincibleSeconds = 5;
   const goldenObstaclePauseSeconds = 3;
   const minCollisionSpeed = 118;
+  const runFrameSeconds = 0.077;
+  const puddleSplashFrameSeconds = 0.07;
+  const puddleSplashFrameCount = 4;
+  const goldenClearSeconds = 0.95;
+  const goldenClearParticleCount = 124;
   const collisionPenalty = {
     puddle: { speed: 62, distance: 26 },
     cat: { speed: 86, distance: 42 },
@@ -44,10 +57,12 @@
       loadImage("assets/kokko-run-1.png"),
       loadImage("assets/kokko-run-2.png"),
       loadImage("assets/kokko-run-3.png"),
-      loadImage("assets/kokko-run-2.png"),
+      loadImage("assets/kokko-run-4.png"),
+      loadImage("assets/kokko-run-5.png"),
+      loadImage("assets/kokko-run-6.png"),
     ],
     kokkoWalkAway: loadImage("assets/kokko-walk-away-sheet.png"),
-    kokkoFront: loadImage("assets/kokko.png"),
+    kokkoFront: loadImage("assets/kokko-front-wave.png"),
     yellowCat: loadImage("assets/cat-yellow.png"),
     yellowCatHappy: loadImage("assets/cat-yellow-happy.png"),
     blackCat: loadImage("assets/cat-black.png"),
@@ -55,6 +70,7 @@
     home: loadImage("assets/home-cottage_origin.png"),
     sandwich: loadImage("assets/sandwitch-croissant.png"),
     goldenCroissant: loadImage("assets/golden-croissant.png"),
+    puddleSplash: loadImage("assets/kokko-puddle-splash-sheet.png"),
     croissantFlowers: [
       loadImage("assets/croissant-flower-01.png"),
       loadImage("assets/croissant-flower-02.png"),
@@ -98,10 +114,19 @@
     flowers: [],
     clouds: [],
     dust: [],
+    splashes: [],
+    goldenClears: [],
   };
 
   let best = Number(localStorage.getItem("kokko-forward-best") || 0);
   bestText.textContent = `${Math.round(best)}m`;
+
+  // 리더보드 연동 상태
+  let lastResult = null; // 직전 플레이 결과 {finished, elapsedMs, distance}
+  let lbUnsub = null; // Firestore 구독 해제 함수
+  let mySubmittedNick = ""; // 내가 등록한 닉네임 (순위표에서 강조용)
+  nickInput.value = localStorage.getItem("kokko-nick") || "";
+  contactInput.value = localStorage.getItem("kokko-contact") || "";
 
   seedScenery();
   resizeCanvasForDisplay();
@@ -119,6 +144,7 @@
 
   window.addEventListener("resize", resizeCanvasForDisplay);
   startButton.addEventListener("click", startGame);
+  submitScoreButton.addEventListener("click", submitCurrentScore);
   leftButton.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     moveLane(-1);
@@ -223,7 +249,10 @@
     state.obstacles = [];
     state.items = [];
     state.dust = [];
+    state.splashes = [];
+    state.goldenClears = [];
     overlay.classList.add("is-hidden");
+    hideLeaderboardUI();
     requestAnimationFrame(loop);
   }
 
@@ -271,8 +300,8 @@
     if (isGrounded()) {
       state.playerPulse += dt * 8;
       state.runFrameTimer += dt * (state.speed / 178);
-      while (state.runFrameTimer >= 0.115) {
-        state.runFrameTimer -= 0.115;
+      while (state.runFrameTimer >= runFrameSeconds) {
+        state.runFrameTimer -= runFrameSeconds;
         state.runFrame = (state.runFrame + 1) % images.kokkoRun.length;
       }
     }
@@ -364,6 +393,16 @@
     }
     state.dust = state.dust.filter((particle) => particle.life > 0);
 
+    for (const splash of state.splashes) {
+      splash.age += dt;
+    }
+    state.splashes = state.splashes.filter((splash) => splash.age < puddleSplashFrameSeconds * puddleSplashFrameCount);
+
+    for (const clear of state.goldenClears) {
+      clear.age += dt;
+    }
+    state.goldenClears = state.goldenClears.filter((clear) => clear.age < goldenClearSeconds);
+
     if (state.distance >= goalDistance) {
       beginCelebration();
       return;
@@ -433,6 +472,9 @@
     state.message = obstacle.type === "puddle" ? "첨벙!" : "길막!";
     state.messageTimer = 0.7;
     makeDust(playerScreenX(), playerBaseY - 20, obstacle.type === "puddle" ? 15 : 10);
+    if (obstacle.type === "puddle") {
+      makePuddleSplash(obstacle);
+    }
   }
 
   function blockObstacle(obstacle) {
@@ -442,6 +484,9 @@
     state.message = "무적!";
     state.messageTimer = 0.45;
     makeDust(playerScreenX(), playerBaseY - 20, 8);
+    if (obstacle.type === "puddle") {
+      makePuddleSplash(obstacle);
+    }
   }
 
   function collectItem(item) {
@@ -454,13 +499,14 @@
       return;
     }
 
+    makeGoldenClearEffect(item, state.obstacles);
     state.obstacles = [];
     state.obstaclePauseTimer = goldenObstaclePauseSeconds;
     state.spawnTimer = Math.max(state.spawnTimer, goldenObstaclePauseSeconds);
     state.shake = Math.max(state.shake, 5);
     state.message = "싹!";
     state.messageTimer = 0.9;
-    makeDust(playerScreenX(), playerBaseY - 36, 24);
+    makeGoldenDust(playerScreenX(), playerBaseY - 36, 30);
   }
 
   function beginCelebration() {
@@ -480,6 +526,8 @@
     state.obstacles = [];
     state.items = [];
     state.dust = [];
+    state.splashes = [];
+    state.goldenClears = [];
   }
 
   function finish(success) {
@@ -492,11 +540,138 @@
     }
     updateHud();
 
+    lastResult = {
+      finished: success,
+      elapsedMs: Math.round(state.elapsed * 1000),
+      distance: Math.round(score),
+    };
+
     resultKicker.textContent = success ? "SUCCESS" : "TIME UP";
     resultTitle.textContent = success ? "집에 도착!" : "조금 더!";
-    resultMeta.textContent = `${Math.round(score)}m 이동`;
+    resultMeta.textContent = success
+      ? `${state.elapsed.toFixed(1)}초 만에 도착! 🎉`
+      : `${Math.round(score)}m 이동`;
     startButton.textContent = "다시";
+    showResultSubmitUI();
     overlay.classList.remove("is-hidden");
+  }
+
+  // --- 리더보드 ---
+
+  function whenLB(callback) {
+    if (window.KokkoLB) {
+      callback(window.KokkoLB);
+    } else {
+      window.addEventListener("kokko-lb-ready", () => callback(window.KokkoLB), { once: true });
+    }
+  }
+
+  function showResultSubmitUI() {
+    submitStatus.textContent = "";
+    submitStatus.classList.remove("is-error");
+    submitScoreButton.disabled = false;
+    submitScoreButton.textContent = "순위 등록";
+    submitArea.classList.remove("is-hidden");
+    leaderboardArea.classList.remove("is-hidden");
+    startLeaderboardFeed();
+  }
+
+  function hideLeaderboardUI() {
+    submitArea.classList.add("is-hidden");
+    leaderboardArea.classList.add("is-hidden");
+    if (lbUnsub) {
+      lbUnsub();
+      lbUnsub = null;
+    }
+  }
+
+  function startLeaderboardFeed() {
+    if (lbUnsub) {
+      return;
+    }
+    whenLB((lb) => {
+      if (!lbUnsub) {
+        lbUnsub = lb.subscribeTop(renderLeaderboard);
+      }
+    });
+  }
+
+  function renderLeaderboard(rows) {
+    leaderboardList.textContent = "";
+    rows.slice(0, 7).forEach((row, i) => {
+      const li = document.createElement("li");
+      if (mySubmittedNick && row.nickname === mySubmittedNick) {
+        li.classList.add("is-me");
+      }
+
+      const rankEl = document.createElement("span");
+      rankEl.className = "lb-rank";
+      rankEl.textContent = ["🥇", "🥈", "🥉"][i] || String(i + 1);
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "lb-name";
+      nameEl.textContent = row.nickname || "익명";
+
+      const metricEl = document.createElement("span");
+      metricEl.className = "lb-metric";
+      metricEl.textContent = row.finished
+        ? `${(row.elapsedMs / 1000).toFixed(1)}초 완주`
+        : `${row.distance}m`;
+
+      li.append(rankEl, nameEl, metricEl);
+      leaderboardList.appendChild(li);
+    });
+
+    if (mySubmittedNick) {
+      const idx = rows.findIndex((row) => row.nickname === mySubmittedNick);
+      myRankText.textContent = idx >= 0 ? `· 내 순위 ${idx + 1}위` : "· 순위 집계 중";
+    } else {
+      myRankText.textContent = "";
+    }
+  }
+
+  function submitCurrentScore() {
+    if (!lastResult) {
+      return;
+    }
+    const nickname = nickInput.value.trim();
+    const contact = contactInput.value.trim();
+    if (nickname.length < 1) {
+      submitStatus.textContent = "닉네임을 입력해 주세요.";
+      submitStatus.classList.add("is-error");
+      nickInput.focus();
+      return;
+    }
+
+    localStorage.setItem("kokko-nick", nickname);
+    localStorage.setItem("kokko-contact", contact);
+    submitScoreButton.disabled = true;
+    submitScoreButton.textContent = "등록 중…";
+    submitStatus.classList.remove("is-error");
+    submitStatus.textContent = "";
+
+    whenLB((lb) => {
+      lb.submitScore({
+        nickname,
+        contact,
+        finished: lastResult.finished,
+        elapsedMs: lastResult.elapsedMs,
+        distance: lastResult.distance,
+      })
+        .then(() => {
+          mySubmittedNick = nickname;
+          submitScoreButton.textContent = "등록 완료!";
+          submitStatus.textContent = "순위표에 등록됐어요. 다시 도전해 더 높은 기록을 노려보세요!";
+          startLeaderboardFeed();
+        })
+        .catch((err) => {
+          console.error("[KokkoLB] 등록 실패:", err);
+          submitScoreButton.disabled = false;
+          submitScoreButton.textContent = "순위 등록";
+          submitStatus.textContent = "등록 실패 — 잠시 후 다시 시도해 주세요.";
+          submitStatus.classList.add("is-error");
+        });
+    });
   }
 
   function draw(dt) {
@@ -510,11 +685,13 @@
     drawRoad();
     drawTrackDetails();
     drawDepthSortedObjects();
+    drawGoldenClearEffects();
     if (state.mode === "celebrating" || (state.mode === "ended" && state.finishSuccess)) {
       drawCelebrationPlayer();
     } else {
       drawPlayer();
     }
+    drawPuddleSplashes();
     drawDust();
     drawMessage();
     ctx.restore();
@@ -924,6 +1101,279 @@
     ctx.restore();
   }
 
+  function drawGoldenClearEffects() {
+    if (!state.goldenClears.length) {
+      return;
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const clear of state.goldenClears) {
+      drawGoldenRoadRibbons(clear);
+      drawGoldenObstacleBursts(clear);
+      drawGoldenParticles(clear);
+    }
+    ctx.restore();
+  }
+
+  function drawGoldenRoadRibbons(clear) {
+    const t = clamp(clear.age / goldenClearSeconds, 0, 1);
+    const burst = easeOutCubic(clamp(clear.age / 0.34, 0, 1));
+    const bloomFade = 1 - easeOutCubic(clamp((clear.age - 0.5) / 0.45, 0, 1));
+    const bloomRadius = 42 + burst * 118;
+    const bloom = ctx.createRadialGradient(clear.originX, clear.originY, 0, clear.originX, clear.originY, bloomRadius);
+    bloom.addColorStop(0, `rgba(255, 255, 238, ${0.7 * bloomFade})`);
+    bloom.addColorStop(0.28, `rgba(255, 232, 96, ${0.46 * bloomFade})`);
+    bloom.addColorStop(1, "rgba(255, 210, 45, 0)");
+
+    ctx.fillStyle = bloom;
+    ctx.beginPath();
+    ctx.arc(clear.originX, clear.originY, bloomRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (const trail of clear.trails) {
+      const p = clamp((clear.age - trail.delay) / trail.life, 0, 1);
+      if (p <= 0 || p >= 1) {
+        continue;
+      }
+
+      const eased = easeOutCubic(p);
+      const fade = Math.pow(1 - p, 0.72);
+      const depth = trail.depth;
+      const center = perspectivePoint(0, depth);
+      const roadW = roadHalfWidthForDepth(depth);
+      const scale = scaleForDepth(depth);
+      const startX = center.x + trail.side * roadW * 0.04;
+      const midX = center.x + trail.side * roadW * (0.16 + trail.reach * eased * 0.44);
+      const endX = center.x + trail.side * roadW * (0.22 + trail.reach * eased);
+      const y = center.y + trail.yOffset * scale - Math.sin(p * Math.PI) * trail.lift * scale;
+
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.shadowBlur = 18 * scale;
+      ctx.shadowColor = "rgba(255, 224, 82, 0.82)";
+      ctx.strokeStyle = `rgba(255, 218, 70, ${0.26 * fade * (1 - t * 0.18)})`;
+      ctx.lineWidth = (4.5 + depth * 7.5) * trail.width * fade;
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.quadraticCurveTo(midX, y - trail.arc * scale, endX, y + trail.tail * scale);
+      ctx.stroke();
+
+      ctx.shadowBlur = 6 * scale;
+      ctx.strokeStyle = `rgba(255, 255, 236, ${0.58 * fade})`;
+      ctx.lineWidth = Math.max(1.1, (1.5 + depth * 2.3) * trail.width * fade);
+      ctx.beginPath();
+      ctx.moveTo(startX, y);
+      ctx.quadraticCurveTo(midX, y - trail.arc * scale, endX, y + trail.tail * scale);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawGoldenObstacleBursts(clear) {
+    for (const burst of clear.bursts) {
+      const p = clamp((clear.age - burst.delay) / burst.life, 0, 1);
+      if (p <= 0 || p >= 1) {
+        continue;
+      }
+
+      const eased = easeOutCubic(p);
+      const alpha = Math.pow(1 - p, 0.84);
+      const point = perspectivePoint(burst.lane, burst.depth);
+      const scale = scaleForDepth(burst.depth);
+      const y = point.y - (28 + 8 * Math.sin(burst.phase)) * scale;
+
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 246, 166, ${0.68 * alpha})`;
+      ctx.lineWidth = Math.max(1, 2.6 * scale * alpha);
+      ctx.shadowBlur = 10 * scale;
+      ctx.shadowColor = "rgba(255, 215, 72, 0.72)";
+      ctx.beginPath();
+      ctx.ellipse(point.x, y, (18 + 46 * eased) * scale, (8 + 18 * eased) * scale, burst.phase * 0.2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      for (let i = 0; i < 6; i += 1) {
+        const angle = burst.phase + (Math.PI * 2 * i) / 6;
+        const dist = (12 + 44 * eased) * scale;
+        drawGoldenGlint(
+          point.x + Math.cos(angle) * dist,
+          y + Math.sin(angle) * dist * 0.58,
+          (3.4 + i % 2) * scale * alpha,
+          alpha * 0.78,
+          angle,
+        );
+      }
+    }
+  }
+
+  function drawGoldenParticles(clear) {
+    for (const particle of clear.particles) {
+      const p = clamp((clear.age - particle.delay) / particle.life, 0, 1);
+      if (p <= 0 || p >= 1) {
+        continue;
+      }
+
+      const eased = easeOutCubic(p);
+      const center = perspectivePoint(0, particle.depth);
+      const roadW = roadHalfWidthForDepth(particle.depth);
+      const scale = scaleForDepth(particle.depth);
+      const drift = particle.side * roadW * (particle.start + particle.distance * eased);
+      const shimmer = Math.sin(clear.age * particle.twinkle + particle.phase) * particle.wobble * scale;
+      const x = center.x + drift + shimmer;
+      const y = center.y + particle.yOffset * scale - Math.sin(p * Math.PI) * particle.lift * scale;
+      const alpha = Math.pow(1 - p, 0.9) * particle.alpha;
+      const radius = particle.size * scale * (1 - p * 0.34);
+
+      if (particle.glint) {
+        drawGoldenGlint(x, y, radius * 2.4, alpha, particle.phase + p * Math.PI * 1.5);
+        continue;
+      }
+
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, radius * 3.4);
+      glow.addColorStop(0, `rgba(255, 255, 245, ${0.9 * alpha})`);
+      glow.addColorStop(0.32, `rgba(255, 232, 93, ${0.58 * alpha})`);
+      glow.addColorStop(1, "rgba(255, 196, 38, 0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 3.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(255, 255, 240, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(0.8, radius * 0.9), 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawGoldenGlint(x, y, radius, alpha, rotation = 0) {
+    if (alpha <= 0) {
+      return;
+    }
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rotation);
+    ctx.strokeStyle = `rgba(255, 255, 235, ${alpha})`;
+    ctx.lineWidth = Math.max(1, radius * 0.16);
+    ctx.lineCap = "round";
+    ctx.shadowBlur = radius * 1.4;
+    ctx.shadowColor = `rgba(255, 217, 74, ${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(-radius, 0);
+    ctx.lineTo(radius, 0);
+    ctx.moveTo(0, -radius * 0.74);
+    ctx.lineTo(0, radius * 0.74);
+    ctx.stroke();
+    ctx.fillStyle = `rgba(255, 236, 112, ${alpha * 0.7})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, Math.max(1, radius * 0.18), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function makeGoldenClearEffect(item, obstacles) {
+    const itemPoint = perspectivePoint(item.lane, item.depth);
+    const itemScale = scaleForDepth(item.depth);
+    const clear = {
+      age: 0,
+      originX: itemPoint.x,
+      originY: itemPoint.y - 42 * itemScale,
+      particles: [],
+      trails: [],
+      bursts: obstacles.map((obstacle, index) => ({
+        lane: obstacle.lane,
+        depth: clamp(obstacle.depth, 0.08, 1.06),
+        delay: 0.04 + index * 0.026 + random(0, 0.08),
+        life: random(0.38, 0.56),
+        phase: random(0, Math.PI * 2),
+      })),
+    };
+
+    for (let i = 0; i < 8; i += 1) {
+      const depth = 0.2 + Math.pow(i / 7, 1.12) * 0.86;
+      for (const side of [-1, 1]) {
+        clear.trails.push({
+          side,
+          depth,
+          delay: random(0, 0.06) + (1 - depth) * 0.035,
+          life: random(0.46, 0.66),
+          reach: random(0.62, 0.9),
+          lift: random(4, 18),
+          arc: random(10, 34),
+          tail: random(-8, 12),
+          width: random(0.74, 1.24),
+          yOffset: random(-8, 8),
+        });
+      }
+    }
+
+    for (let i = 0; i < goldenClearParticleCount; i += 1) {
+      const depth = random(0.16, 1.05);
+      clear.particles.push({
+        side: i % 2 === 0 ? -1 : 1,
+        depth,
+        delay: random(0, 0.17) + (1 - depth) * 0.05,
+        life: random(0.38, 0.82),
+        start: random(0.02, 0.14),
+        distance: random(0.42, 0.92),
+        lift: random(8, 42),
+        yOffset: random(-12, 14),
+        wobble: random(1.5, 11),
+        twinkle: random(7, 15),
+        size: random(1.4, 4.7),
+        alpha: random(0.54, 0.96),
+        phase: random(0, Math.PI * 2),
+        glint: Math.random() > 0.58,
+      });
+    }
+
+    state.goldenClears.push(clear);
+  }
+
+  function drawPuddleSplashes() {
+    const image = images.puddleSplash;
+    if (!image.complete || !image.naturalWidth) {
+      return;
+    }
+
+    const frameW = image.naturalWidth / puddleSplashFrameCount;
+    const frameH = image.naturalHeight;
+    for (const splash of state.splashes) {
+      const frame = Math.min(puddleSplashFrameCount - 1, Math.floor(splash.age / puddleSplashFrameSeconds));
+      const progress = splash.age / (puddleSplashFrameSeconds * puddleSplashFrameCount);
+      const w = 212 * splash.scale;
+      const h = w * (frameH / frameW);
+
+      ctx.save();
+      ctx.globalAlpha = 1 - Math.max(0, progress - 0.68) / 0.32;
+      ctx.drawImage(
+        image,
+        frame * frameW,
+        0,
+        frameW,
+        frameH,
+        splash.x - w / 2,
+        splash.y - h * 0.73,
+        w,
+        h,
+      );
+      ctx.restore();
+    }
+  }
+
+  function makePuddleSplash(obstacle) {
+    const jump = jumpHeight();
+    const scale = scaleForDepth(Math.max(0.94, obstacle.depth)) * 0.9;
+    state.splashes.push({
+      x: playerScreenX(),
+      y: playerBaseY - jump * 92 + 18,
+      scale,
+      age: 0,
+    });
+  }
+
   function drawDust() {
     for (const p of state.dust) {
       ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
@@ -1010,6 +1460,22 @@
         life: random(0.28, 0.56),
         maxLife: 0.56,
         color: Math.random() > 0.35 ? "#c08c4f" : "#8dd4e8",
+      });
+    }
+  }
+
+  function makeGoldenDust(x, y, count) {
+    for (let i = 0; i < count; i += 1) {
+      const life = random(0.34, 0.72);
+      state.dust.push({
+        x: x + random(-18, 18),
+        y: y + random(-8, 10),
+        vx: random(-120, 120),
+        vy: random(-210, -70),
+        r: random(2, 5.2),
+        life,
+        maxLife: life,
+        color: ["#fff7b8", "#ffe45f", "#ffffff", "#ffd24a"][i % 4],
       });
     }
   }
@@ -1197,6 +1663,11 @@
   function easeInOut(value) {
     const t = clamp(value, 0, 1);
     return t * t * (3 - 2 * t);
+  }
+
+  function easeOutCubic(value) {
+    const t = clamp(value, 0, 1);
+    return 1 - Math.pow(1 - t, 3);
   }
 
   function random(min, max) {

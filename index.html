@@ -26,8 +26,20 @@
           <div class="result-panel">
             <p id="resultKicker">READY</p>
             <h1 id="resultTitle">꼬꼬 집으로!</h1>
-        <p id="resultMeta">좌우 이동과 점프로 집까지 도착하기</p>
+            <p id="resultMeta">좌우 이동과 점프로 집까지 도착하기</p>
             <button id="startButton" type="button">시작</button>
+
+            <div id="submitArea" class="submit-area is-hidden">
+              <input id="nickInput" type="text" maxlength="16" placeholder="닉네임" autocomplete="off" inputmode="text">
+              <input id="contactInput" type="text" maxlength="40" placeholder="연락처 (당첨 안내용)" autocomplete="off">
+              <button id="submitScoreButton" type="button">순위 등록</button>
+              <p id="submitStatus" class="submit-status"></p>
+            </div>
+
+            <div id="leaderboardArea" class="leaderboard-area is-hidden">
+              <p class="lb-title">실시간 순위 <span id="myRankText"></span></p>
+              <ol id="leaderboardList" class="leaderboard-list"></ol>
+            </div>
           </div>
         </div>
       </section>
@@ -40,5 +52,6 @@
     </main>
 
     <script src="game.js"></script>
+    <script type="module" src="leaderboard.js"></script>
   </body>
 </html>
