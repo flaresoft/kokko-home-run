@@ -158,6 +158,44 @@
     muteButton.setAttribute("aria-label", bgm.muted ? "음소거 해제" : "음소거");
   }
 
+  // --- 효과음 (SFX) — 음소거 버튼(bgm.muted)을 함께 따른다 ---
+  const SFX = {
+    start: ["assets/sound/ui-click-start.wav"],
+    water: [
+      "assets/sound/sfx-water_01.wav",
+      "assets/sound/sfx-water_02.wav",
+      "assets/sound/sfx-water_03.wav",
+    ],
+    golden: [
+      "assets/sound/sfx-golden-croissant_01.wav",
+      "assets/sound/sfx-golden-croissant_02.wav",
+      "assets/sound/sfx-golden-croissant_03.wav",
+      "assets/sound/sfx-golden-croissant_04.wav",
+    ],
+    blockDore: ["assets/sound/sfx-block-dore.wav"], // 노란 고양이(도레)
+    blockNoa: ["assets/sound/sfx-block-noa.wav"], // 검은 고양이(노아)
+  };
+
+  // 첫 재생 지연을 줄이기 위한 캐시 워밍(참조 유지)
+  const sfxWarm = [];
+  Object.values(SFX).forEach((list) =>
+    list.forEach((src) => {
+      const a = new Audio(src);
+      a.preload = "auto";
+      sfxWarm.push(a);
+    })
+  );
+
+  function playSfx(list, volume = 0.75) {
+    if (bgm.muted || !list || !list.length) {
+      return;
+    }
+    const src = list[Math.floor(Math.random() * list.length)];
+    const a = new Audio(src);
+    a.volume = volume;
+    a.play().catch(() => {});
+  }
+
   seedScenery();
   resizeCanvasForDisplay();
   draw(0);
@@ -283,6 +321,7 @@
     state.goldenClears = [];
     overlay.classList.add("is-hidden");
     hideLeaderboardUI();
+    playSfx(SFX.start);
     playBgm();
     requestAnimationFrame(loop);
   }
@@ -505,6 +544,11 @@
     makeDust(playerScreenX(), playerBaseY - 20, obstacle.type === "puddle" ? 15 : 10);
     if (obstacle.type === "puddle") {
       makePuddleSplash(obstacle);
+      playSfx(SFX.water);
+    } else if (obstacle.type === "blackCat") {
+      playSfx(SFX.blockNoa); // 노아
+    } else {
+      playSfx(SFX.blockDore); // 도레 (yellowCat)
     }
   }
 
@@ -530,6 +574,7 @@
       return;
     }
 
+    playSfx(SFX.golden);
     makeGoldenClearEffect(item, state.obstacles);
     state.obstacles = [];
     state.obstaclePauseTimer = goldenObstaclePauseSeconds;
