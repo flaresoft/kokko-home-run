@@ -128,6 +128,36 @@
   nickInput.value = localStorage.getItem("kokko-nick") || "";
   contactInput.value = localStorage.getItem("kokko-contact") || "";
 
+  // 배경음악 — 게임 시작 시 재생, 반복
+  const bgm = new Audio("assets/sound/bgm.mp3");
+  bgm.loop = true;
+  bgm.volume = 0.5;
+  bgm.preload = "auto";
+
+  function playBgm() {
+    // startGame 은 클릭/터치/키 입력에서 호출되므로 브라우저 자동재생 정책을 통과한다.
+    // (autostart 처럼 사용자 제스처가 아닌 경로에서는 조용히 무시)
+    bgm.play().catch(() => {});
+  }
+
+  // 음소거 토글 (상태는 localStorage 에 저장)
+  const muteButton = document.getElementById("muteButton");
+  bgm.muted = localStorage.getItem("kokko-muted") === "1";
+  updateMuteButton();
+
+  muteButton.addEventListener("click", () => {
+    bgm.muted = !bgm.muted;
+    localStorage.setItem("kokko-muted", bgm.muted ? "1" : "0");
+    updateMuteButton();
+  });
+
+  function updateMuteButton() {
+    muteButton.textContent = bgm.muted ? "🔇" : "🔊";
+    muteButton.classList.toggle("is-muted", bgm.muted);
+    muteButton.setAttribute("aria-pressed", String(bgm.muted));
+    muteButton.setAttribute("aria-label", bgm.muted ? "음소거 해제" : "음소거");
+  }
+
   seedScenery();
   resizeCanvasForDisplay();
   draw(0);
@@ -253,6 +283,7 @@
     state.goldenClears = [];
     overlay.classList.add("is-hidden");
     hideLeaderboardUI();
+    playBgm();
     requestAnimationFrame(loop);
   }
 
