@@ -174,6 +174,7 @@
     ],
     blockDore: ["assets/sound/sfx-block-dore.wav"], // 노란 고양이(도레)
     blockNoa: ["assets/sound/sfx-block-noa.wav"], // 검은 고양이(노아)
+    shield: ["assets/sound/sfx-shield.wav"], // 크루아상 샌드위치(보호막)
   };
 
   // 첫 재생 지연을 줄이기 위한 캐시 워밍(참조 유지)
@@ -571,6 +572,7 @@
       state.message = "무적!";
       state.messageTimer = 0.9;
       makeDust(playerScreenX(), playerBaseY - 32, 18);
+      playSfx(SFX.shield);
       return;
     }
 
